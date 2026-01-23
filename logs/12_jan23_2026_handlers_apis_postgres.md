@@ -1,11 +1,22 @@
-Part 1: The request. We call getUserGameHistory, async, and put in into a response. We can do whatever we want with that info.
+This document provides a comprehensive architectural trace of the Overthrow Chess stack, mapping the full lifecycle of a data request from the React Native frontend through the Go backend and into the PostgreSQL database. It traces one specific flow of getting all the games of any single user and returning it to the frontend.
 
+
+
+**Part 1:** The request. Any frontend javascript can call this method, and put the result into a variable. The end result will allow the frontend to use that data. 
+In fetchGames(), We call getUserGameHistory, async, and put in into a response. We can do whatever we want with that info.
+
+**stats/index.tsx**
 ```
+  const [games, setGames] = useState<FinishedGame[]>([]);
+
+...
+
+// This method is automatically called whenever 'isAuthenticated' or 'user' is changed. So if the user changes or logs in, we automatically fetch all of that user's games and store them in the games variable to use later.
 const fetchGames = async () => {
       setGamesLoading(true);
       setGamesError(null);
       try {
-        const response = await getUserGameHistory(5);
+        const response = await getUserGameHistory(5);    <------------------------------- leads to part 2
         // If response.games is null, default to empty array []
         const fetchedGames = response.games || [];
         setGames(fetchedGames);
@@ -24,9 +35,10 @@ const fetchGames = async () => {
   }, [isAuthenticated, user]);
 ```
 
-Part 2: The API call. We call an apiRequest with a specific URL to call for what we want. In this case, 
+**Part 2:** The API call. We call an apiRequest with a specific URL to call for what we want. In this case, 
 `/api/games/finished?limit=${limit}`
 
+**gameHistoryService.ts**
 ```
 /**
  * Fetch user's completed games from the backend
@@ -34,7 +46,7 @@ Part 2: The API call. We call an apiRequest with a specific URL to call for what
 export async function getUserGameHistory(limit: number = 50): Promise<GameHistoryResponse> {
   try {
     console.log('Fetching game history...');
-    const response = await apiRequest(
+    const response = await apiRequest(        <------------------------------------ api call to part 3
       `/api/games/finished?limit=${limit}`,
       'GET',
       undefined,
@@ -51,17 +63,34 @@ export async function getUserGameHistory(limit: number = 50): Promise<GameHistor
 }
 ```
 
-Part 3: The router. main.go handles pathing between requests and the handler.
+**Part 3:** The router. 'main.go' handles pathing between requests and the handler. It also initializes the postgresStore object which is what ultimately communicates with postgres, and it gives that to the handlers to use.
 
+**main.go**
 ```
-// Public game viewing endpoints with optional auth (uses auth if present, otherwise requires user_id param)
-    router.Handle("/api/games/finished", authMiddleware.OptionalAuth(http.HandlerFunc(handlers.GetUserFinishedGamesHandler))).Methods("GET")
+// Initialize stores
+      log.Println("Connecting to PostgreSQL...")
+      postgresStore, err := store.NewPostgresStore(cfg.DatabaseURL)
+      if err != nil {
+            log.Fatalf("Failed to connect to PostgreSQL: %v", err)
+      }
+      defer postgresStore.Close()
+
+...
+
+// Initialize API handlers
+      handlers := api.NewHandlers(authService, queueManager, postgresStore)
+
+...
+
+// Game Endpoint setup. Routing from URL endpoint toward a specific handler
+    router.Handle("/api/games/finished", authMiddleware.OptionalAuth(http.HandlerFunc(handlers.GetUserFinishedGamesHandler))).Methods("GET")         <------------------------- handler called after API call in part 2
 ```
 
-Part 4: The handler. The handler reads from r *http.Request which has information in it about the request and who’s requesting. It writes information back in w, a stream. 
+
+**Part 4:** The handler. The handler reads from r *http.Request which has information in it about the request and who’s requesting. It writes information back in w, a stream. 
 It calls the store with the desired method, which contacts and gets data from the database.
 
-
+**api/handlers.go**
 ```
 // GetUserFinishedGamesHandler retrieves a user's completed games
 func (h *Handlers) GetUserFinishedGamesHandler(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +127,7 @@ func (h *Handlers) GetUserFinishedGamesHandler(w http.ResponseWriter, r *http.Re
 
 
     // Get finished games from database
-    dbGames, err := h.postgresStore.GetUserFinishedGames(userID, limit)
+    dbGames, err := h.postgresStore.GetUserFinishedGames(userID, limit)              <------------------ calling the store to get data (part 5)
     if err != nil {
         log.Printf("Error getting finished games for user %s: %v", userID, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -111,9 +140,11 @@ func (h *Handlers) GetUserFinishedGamesHandler(w http.ResponseWriter, r *http.Re
 
 
 
-Part 5: The store. Store is short for Data Store or Storage Layer. It is a specific folder (package) dedicated 100% to talking to the database. 
+**Part 5:** The store. Store is short for Data Store or Storage Layer. It is a specific folder (package) dedicated 100% to talking to the database. 
 Its only job is to translate "Go requests" into "SQL commands.". It queries the database using PostgresStore object, which was opened by main.go for the purpose of speaking to the database. 
 It gets the required information, stores it in a struct, and returns it to the handler.
+
+**store/postgres.go**
 ```
 // GetUserFinishedGames retrieves a user's completed games
 func (p *PostgresStore) GetUserFinishedGames(userID string, limit int) ([]FinishedGame, error) {
@@ -205,16 +236,16 @@ func (p *PostgresStore) GetUserFinishedGames(userID string, limit int) ([]Finish
     }
 
 
-    return games, nil
+    return games, nil            <------------------------------------ Returning that data back to the handler
 }
 ```
 
 
 
-Part 6: Back to the handler. It gets that struct back, and converts it into a preferred format. Also does some smart calculating (like below it changes UserElo and OpponentElo based on UserColor. 
+**Part 6:** Back to the handler. It gets that struct back, and converts it into a preferred format. Also does some smart calculating (like below it changes UserElo and OpponentElo based on UserColor. 
 Then, it writes that information back into the open pipe ‘w’. This conversion process between raw DB data and pretty useable JSON data is called the "DTO Pattern" (Data Transfer Object).
 
-
+**api/handlers.go**
 ```
     type FinishedGameResponse struct {
         ID           string    `json:"id"`
@@ -265,7 +296,7 @@ Then, it writes that information back into the open pipe ‘w’. This conversio
 
 
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]interface{}{
+    json.NewEncoder(w).Encode(map[string]interface{}{       <--------------------------------- This is where that open pipe is written into. Ultimately backend magic happens to send the result back to where we need it.
         "games": games,
         "count": len(games),
     })
@@ -273,7 +304,8 @@ Then, it writes that information back into the open pipe ‘w’. This conversio
 ```
 
 
-Part 7: Final. Back at fetchGames, we now have all of that information and we can use it how we want to.
+**Part 7:** Final. Back at fetchGames, we now have all of that information and we can use it how we want to.
+**stats/index.tsx**
 ```
 const fetchGames = async () => {
       setGamesLoading(true);
@@ -301,13 +333,14 @@ const fetchGames = async () => {
 
 
 This line sets ‘games’ as the variable holding a user’s games, and ‘setGames’ as the method call to set the ‘games’ variable.
-
+**stats/index.tsx**
 `const [games, setGames] = useState<FinishedGame[]>([]);`
 
 Whenever setGames is called, React destroys the current view and re-paints the entire screen with the new data. This is called a "Re-render."
 
 
 And finally, here we can see games being separated into each individual game and displayed on the screen (within a larger scrollView).
+**stats/index.tsx**
 ```
 {games.map((game) => (
               <MatchRow
