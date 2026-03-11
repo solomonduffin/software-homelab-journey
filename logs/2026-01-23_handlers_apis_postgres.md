@@ -1,4 +1,4 @@
-This document provides a comprehensive architectural trace of the Overthrow Chess stack, mapping the full lifecycle of a data request from the React Native frontend through the Go backend and into the PostgreSQL database. It traces one specific flow of getting all the games of any single user and returning it to the frontend.
+This document provides a comprehensive architectural trace of the Overthrow Chess stack, mapping the full lifecycle of a data request from the React Native frontend through the Go backend and into the PostgreSQL database. It traces one specific flow of getting all the games of any single user and returning it to the frontend. Helped by Gemini but compiled by and with most thoughts written by me.
 
 
 
