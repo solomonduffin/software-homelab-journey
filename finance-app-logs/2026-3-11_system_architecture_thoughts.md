@@ -6,11 +6,16 @@ For the backend, I'll use Golang to fetch the info, and to make restful endpoint
 
 I'll have a cronjob 'Goroutine' thread for fetching data once a day and storing it in the DB.
 
+I'll use Nginx for the web server and reverse proxy (info below)
+
 I'll use SQLite for the DB because it doesn't need to be robust at all. Small amounts of data and not separated over the network.
 
 And for the frontend I think I'll use React. We used Go and React Native for our chess capstone project, so I want to nail these tools in while they're fresh.
 
-I'll make all of this containerized where it makes sense to practice using Docker. Also best for self-hosted applications for sure.
+I'll make all of this containerized to practice using Docker. Also best for self-hosted applications for sure.
+
+<img width="1106" height="1001" alt="finapp_architecture" src="https://github.com/user-attachments/assets/4209dce4-0d17-4f96-8b07-3a3dee8072ae" />
+
 
 ## Clearing up some concepts:
 
