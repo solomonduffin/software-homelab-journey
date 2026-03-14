@@ -1,1 +1,3 @@
 Okay so I've been getting confused. It's been a while since I set the VPN stuff up so I didn't realize certain things don't work. Basically, my Proxmox Host, is setup directly with Wireguard so it can access it. So I can connect to any of my OS's through the Proxmox interface. I also have a VM setup with Tailscale, and my Wireguard talks directly to the Tailscale IP and so I can SSH into it. But I have other VMs, which do not have Tailscale, and are not directly configured with Wireguard, so the Datacenter DROP policy drops any incoming packets if I try to SSH in directly.
+
+So my options are to either open up the firewall (no), connect it directly with Wireguard (unneeded), or use Tailscale which is just fire. So this is just a reminder more than anything.
